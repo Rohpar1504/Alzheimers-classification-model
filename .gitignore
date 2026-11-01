@@ -38,3 +38,4 @@ outputs/models/*.joblib
 
 # QC overlays render subject brain images (derived ADNI data) - keep local
 outputs/figures/atlas_qc/**
+outputs/experiments_section.docx

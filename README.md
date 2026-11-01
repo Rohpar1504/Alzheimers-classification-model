@@ -14,6 +14,13 @@ ADNI (Alzheimer's Disease Neuroimaging Initiative) — **28 subjects, balanced 1
 all **ADNI-2 resting-state fMRI** (3T, TR ≈ 3 s, "Resting State fMRI" protocol).
 Groups are **sex-mirrored** (each 8M/6F) and **age-matched** (AD ≈ 78.3, CN ≈ 78.6).
 **No MCI or any other condition** — a clean binary split. Data begins as raw DICOM.
+Each scan has **140 timepoints** (verified from the NIfTI shapes, 64 × 64 × 48 × 140).
+
+**3 subjects have undefined (NaN) connectivity values** — `AD/013_S_5071`,
+`AD/018_S_4733`, `CN/010_S_4442` — caused by brain regions with a flat (constant)
+signal (3, 9 and 12 such regions respectively). Per the advisor's decision, these 3
+are **excluded from the node2vec p/q study**, leaving **25 subjects (12 AD / 13 CN)**.
+The Phase 6 table below still uses all 28 and will be rerun on the 25.
 
 ## Pipeline
 | Phase | What it does | Script | Status |
@@ -32,6 +39,7 @@ Groups are **sex-mirrored** (each 8M/6F) and **age-matched** (AD ≈ 78.3, CN �
 | 6 | 4-fold CV comparison: models × methods × metrics | `src/phase6_model_comparison.py` | ✅ |
 | 7 | Interpret important regions/edges per method | (planned) | ⏭️ |
 | 8 | Write-up | `outputs/` | ⏭️ |
+| p/q | **node2vec p/q study** — how node2vec's walk parameters behave (see section below) | `src/pq_*.py` | 🔄 Steps 0–5, 8 done |
 
 Each script is **independently runnable** and reads from the previous phase's output folder.
 Run scripts with the project venv, e.g. `.venv/bin/python src/phase4_connectivity.py`.
@@ -40,11 +48,14 @@ Run scripts with the project venv, e.g. `.venv/bin/python src/phase4_connectivit
 Six families of graph-based models classify each subject's connectivity network:
 
 - **GCN** (`phase5_gcn.py`) — a Graph Convolutional Network + MLP head that learns
-  directly from the graph structure. *Data-hungry; collapses to predicting one class
-  (sensitivity 0.0) even at n=28.*
+  directly from the graph structure. *Its earlier "collapse" to predicting one class
+  was caused by NaN values in 3 subjects, not by the model — see Findings.*
 - **node2vec + classifier** (`phase5b`, `phase6`) — node2vec embeds each graph's
   structure (unsupervised), mean-pooled into a per-subject vector, then classified by
   **Random Forest**, **MLP**, or **Logistic Regression** (a sigmoid shallow classifier).
+  Settings: 64 dimensions, walk length 20, 200 walks per node, window 10, and
+  **p = q = 1** (an unbiased walk, equivalent to DeepWalk). This is the only model here
+  that uses random walks, so it is the subject of the p/q study below.
 - **TopER + classifier** (`phase5c`, `phase6`) — TopER (Topological Evolution Rate;
   Tola et al., NeurIPS 2025) is a graph-*level* topological embedding: for each
   filtration function (`deg_cen` degree centrality, `fricci` Forman-Ricci curvature —
@@ -114,15 +125,16 @@ specificity, and F1, each as **mean +/- std dev across the 4 folds**
   slightly improved from the original 0.821) across every rerun, including after
   adding TopER, fixing a graph-construction bug (below), and adding GGVec, GEE, and
   the Brain Network Transformer.
-- **Both supervised, end-to-end neural nets fully collapse — GCN and the Brain
-  Network Transformer alike**: accuracy **0.500 +/- 0.082**, sensitivity **0.000**
-  (predicts every subject CN), on all three connectivity methods, for both models.
-  This is a real, coherent finding, not a bug in either implementation: at n=28,
-  even a much larger, more sophisticated architecture (BNT, ~1.5M parameters) fails
-  exactly the same way the simple 2-layer GCN does. The pattern across the whole
-  comparison is now clear: **unsupervised embedding + shallow classifier approaches
-  (node2vec/TopER/GGVec/GEE) remain viable at this sample size; supervised
-  end-to-end deep nets do not.**
+- **The GCN and Brain Network Transformer "collapse" is a NaN artifact, not a model
+  result.** Both report accuracy **0.500 +/- 0.082** and sensitivity **0.000** (every
+  subject predicted CN) in `model_comparison.csv`. The cause: the 3 NaN subjects (see
+  Dataset). `phase5_gcn.build_graph` uses `np.quantile` and keeps the raw NaN values,
+  so the NaN spreads into the model's weights in every fold and it can only output
+  class 0. **Confirmed for the GCN:** with NaN set to 0 it no longer collapses, though it
+  is still weak (accuracy 0.250 / 0.357 / 0.357 on Pearson / Spearman / Kendall). **BNT
+  is very likely the same** (it reads the raw matrix, NaN included) but has not been
+  rerun yet. The earlier conclusion that "supervised deep nets fail at this sample size"
+  is therefore withdrawn until both are rerun on the 25 clean subjects.
 - **TopER's best results tie at accuracy 0.500** (TopER + MLP on Spearman and on
   Kendall; TopER + LogisticReg on Pearson) — meaningfully weaker than node2vec here,
   and fully reproducible (TopER has no randomness). TopER does **not** reproduce
@@ -153,9 +165,10 @@ specificity, and F1, each as **mean +/- std dev across the 4 folds**
   degraded silently (this is what caused TopER's earlier-reported NaN-fit issue);
   GGVec's dependency crashed outright on the empty edge list, which is how this was
   actually caught. Fixed with `np.nanquantile` + explicitly skipping NaN-valued pairs
-  (see `graph_utils.py`); all `phase6` numbers in this README reflect the fix. Worth
-  discussing with the advisor: these 3 subjects' underlying time-series data may be
-  worth a QC pass independent of this fix.
+  (see `graph_utils.py`); all `phase6` numbers in this README reflect the fix. This fix
+  did **not** reach the GCN (`phase5_gcn.py` builds its own graph) or BNT (raw matrix),
+  which is what caused their collapse above. The NaN values come from regions with a
+  flat signal; the advisor decided to exclude these 3 subjects (25 remain).
 
 > ⚠️ **Caveat:** at 28 subjects these numbers remain **indicative, not conclusive**
 > (small folds, single random seed, multiple combinations searched). Expanding the cohort
@@ -163,6 +176,70 @@ specificity, and F1, each as **mean +/- std dev across the 4 folds**
 > robustness checks and showed most single-run "signal" was noise — node2vec + MLP +
 > Spearman is the one result that has persisted through every change. A multi-seed
 > robustness check and further data collection are planned.
+
+**To do for Phase 6:** rerun on the 25 clean subjects (needs `aal_region_labels.csv`
+restored, plus `omegaconf` and `reference/BrainNetworkTransformer/` for BNT); add a
+fail-loud NaN check in Phase 4; average GGVec over several runs.
+
+## node2vec p/q Study (in progress)
+node2vec has two walk parameters. **p** controls stepping back: below 1 the walk often
+returns to the node it just left; above 1 it avoids returning. **q** controls how far it
+goes: below 1 the walk heads outward across the network (global, DFS-like); above 1 it
+stays near where it started (local, BFS-like). **p = q = 1 is neutral** (DeepWalk). This
+study asks how p and q behave on brain networks and whether tuning them helps classify
+AD vs CN. All steps use the **25 clean subjects** and node2vec + MLP.
+
+| Step | What it does | Script | Status |
+|------|--------------|--------|--------|
+| 0 | Define the grid: p, q ∈ {0.25, 0.5, 1, 2, 4} → 25 pairs (Grover & Leskovec 2016) | `src/pq_grid.py` | ✅ |
+| 1 | Compute node2vec's second-order transition probabilities | `src/pq_transition.py` | ✅ (figure not yet saved) |
+| 2 | Cache embeddings for every subject × 25 pairs × 3 measures (75 sets) | `src/pq_embeddings.py` | ✅ |
+| 3 | Nested CV: choose p/q per fold using training subjects only, then test | `src/pq_nested_cv.py` | ✅ |
+| 4 | Mean ± std table of chosen p and q (arithmetic and geometric means) | `src/pq_selection_summary.py` | ✅ |
+| 5 | Data-leakage checks + permutation test | `src/pq_permutation_test.py` | ✅ |
+| 8 | Histogram and scatter plot of chosen p/q | `src/pq_selection_summary.py` | ✅ |
+| 6, 7 | AD vs CN p/q; link q to motifs; transition matrix on the Spearman network | (planned) | ⏭️ |
+
+**Method:** 4-fold stratified CV repeated 25 times (100 outer folds per measure). In
+each fold, p/q is chosen by an inner 3-fold CV on the training subjects only, then
+tested once on the held-out subjects. Ties are broken toward (1, 1). The p = q = 1
+baseline is scored on the same folds.
+
+**Results:**
+
+| Measure | Tuned p/q accuracy | p = q = 1 accuracy | Most chosen pair | Permutation p-value |
+|---|---|---|---|---|
+| Pearson | 0.525 ± 0.195 | 0.616 ± 0.186 | (1, 1) × 17 | 0.122 |
+| **Spearman** | 0.575 ± 0.210 | **0.779 ± 0.196** | (1, 1) × 31 | **0.001** ✔ |
+| Kendall | 0.432 ± 0.186 | 0.472 ± 0.167 | (0.25, 2) × 18 | 0.571 |
+
+- **Tuning p and q does not help.** It overfits with ~19 training subjects per fold, and
+  the default p = q = 1 is more accurate for every measure.
+- **The chosen values are unstable.** They spread across the grid, and their geometric
+  means stay near 1 (0.6–1.3) with a wide spread (about ×/÷ 2.5). Spearman is the most
+  consistent, picking (1, 1) in 31 of 100 folds.
+- **Only Spearman beats chance.** With p = q = 1, its accuracy (0.838 over 5 CV repeats)
+  beat all 1,000 label shuffles (p = 0.001, significant at the Bonferroni level
+  0.05 / 3). Shuffled-label accuracy centres at 0.50 for all three measures.
+- **No data leakage.** All 6 checks pass: folds are disjoint; the chosen p/q does not
+  change when test labels are flipped; embeddings never see labels; no duplicate rows.
+- **Caveat:** Spearman already looked best on these same subjects, so its p-value is
+  somewhat optimistic. Confirming it on new subjects is the strongest next check.
+
+**Run it** (Step 2 must run first; Steps 3–5 take about 30, 1 and 15 minutes):
+```bash
+.venv/bin/python src/pq_embeddings.py          # Step 2: cache embeddings
+.venv/bin/python src/pq_nested_cv.py           # Step 3: all 3 measures (a single measure overwrites the CSV)
+.venv/bin/python src/pq_selection_summary.py   # Steps 4 and 8: table + figures
+.venv/bin/python src/pq_permutation_test.py    # Step 5: leakage checks + permutation test
+.venv/bin/python src/pq_transition.py          # Step 1: transition-probability figure
+```
+Outputs: `outputs/results/pq_*.csv` and `outputs/figures/pq_study/`.
+
+**Next (agreed with the advisor):** plot p/q for AD vs CN subjects (histogram and
+scatter); compare p/q between the top and bottom node2vec models; histogram of chosen
+p/q before vs after label randomization; and build the transition-probability matrix
+from p, q and the Spearman network.
 
 ## Folder Structure
 ```
@@ -174,19 +251,24 @@ specificity, and F1, each as **mean +/- std dev across the 4 folds**
 │   │   ├── {AD,CN}/                    #   one .npy per subject
 │   │   └── aal_region_labels.csv       #   116 AAL region names (column order)
 │   ├── connectivity/{pearson,spearman,kendall}/{AD,CN}/   # (116 x 116) matrices (Phase 4)
+│   ├── pq_embeddings/{pearson,spearman,kendall}/  # cached p/q embeddings (git-ignored; Step 2)
 │   ├── metadata/                       # ADNI per-scan XML metadata
 │   └── subjects.csv                    # labels + demographics (MMSE/CDR/APOE/scanner)
 ├── src/                               # one script per phase (+ QC)
 │   ├── graph_utils.py                  # shared graph construction (build_nx_graph)
 │   ├── ggvec_bridge.py                 # subprocess bridge: nodevectors venv -> phase6
 │   ├── phase5e_gee.py                  # GEE model (hemisphere labels) - Phase 5e
-│   └── phase5f_brain_transformer.py    # Brain Network Transformer - Phase 5f
+│   ├── phase5f_brain_transformer.py    # Brain Network Transformer - Phase 5f
+│   └── pq_*.py                         # node2vec p/q study (Steps 0-5, 8)
 ├── outputs/
 │   ├── figures/
 │   │   ├── atlas_qc/                   # atlas-on-brain overlays (git-ignored: brain images)
-│   │   └── connectivity/               # per-subject connectivity heatmaps
+│   │   ├── connectivity/               # per-subject connectivity heatmaps
+│   │   └── pq_study/                   # p/q histogram, scatter, permutation-test figures
 │   ├── models/                         # trained GCN (.pt) & RF (.joblib) — git-ignored
-│   └── results/model_comparison.csv    # Phase 6 metrics table
+│   └── results/
+│       ├── model_comparison.csv        # Phase 6 metrics table
+│       └── pq_*.csv                    # p/q study results
 ├── reference/SGCN/                    # cloned reference repo — READ ONLY, git-ignored
 ├── reference/BrainNetworkTransformer/ # cloned reference repo — READ ONLY, git-ignored
 ├── requirements.txt
@@ -254,8 +336,9 @@ python3 -m venv ~/.venvs/nodevectors
 GCN architecture and graph construction are **inspired by** the SGCN repository
 (https://github.com/Houliang-Zhou/SGCN) and the IEEE paper *"Multi-Modal Diagnosis of
 Alzheimer's Disease Using Interpretable Graph Convolutional Networks"*
-(https://ieeexplore.ieee.org/document/10606492). node2vec follows Grover & Leskovec (KDD
-2016). TopER embeddings use the unmodified `toper` pip package
+(https://ieeexplore.ieee.org/document/10606492). node2vec and the p/q grid follow Grover
+& Leskovec, *"node2vec: Scalable Feature Learning for Networks,"* KDD 2016
+(https://arxiv.org/abs/1607.00653). TopER embeddings use the unmodified `toper` pip package
 (https://github.com/AstritTola/TopER; Tola, Taiwo, Akcora & Coskunuzer, *"TopER:
 Topological Embeddings in Graph Representation Learning,"* NeurIPS 2025). GGVec
 embeddings use the unmodified `nodevectors` pip package
@@ -271,5 +354,5 @@ All pipeline code is written from scratch; inspiration is credited inline.
 ## Data Ethics
 ADNI data is used under its Data Use Agreement. **No subject data — raw scans, NIfTI,
 time-series, connectivity matrices, metadata, `subjects.csv`, or brain-image figures — is
-committed to version control** (see `.gitignore`). Only code and abstract result tables
-are tracked.
+committed to version control** (see `.gitignore`). Only code, abstract result tables
+and aggregate result figures (e.g. the p/q study plots) are tracked.

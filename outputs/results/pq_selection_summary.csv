@@ -1,0 +1,4 @@
+method,n_folds,p_mean,p_std,p_geo_mean,p_geo_spread_factor,p_median,q_mean,q_std,q_geo_mean,q_geo_spread_factor,q_median,most_selected,most_selected_n,baseline_11_selected_n,distinct_pairs,tuned_accuracy_mean,tuned_accuracy_std,tuned_f1_mean,tuned_f1_std,baseline_11_accuracy_mean,baseline_11_accuracy_std,baseline_11_f1_mean,baseline_11_f1_std
+pearson,100,0.94,1.098,0.599,2.422,0.5,1.09,1.002,0.779,2.26,1.0,"(1, 1)",17,17,17,0.525,0.195,0.476,0.242,0.616,0.186,0.592,0.216
+spearman,100,1.282,1.204,0.859,2.501,1.0,1.71,1.276,1.301,2.142,1.0,"(1, 1)",31,31,17,0.575,0.21,0.53,0.272,0.779,0.196,0.752,0.242
+kendall,100,1.245,1.181,0.768,2.755,0.5,1.668,1.372,1.102,2.665,1.0,"(0.25, 2)",18,3,23,0.432,0.186,0.364,0.245,0.472,0.167,0.405,0.248

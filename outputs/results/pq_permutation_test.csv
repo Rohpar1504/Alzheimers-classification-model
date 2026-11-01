@@ -1,0 +1,4 @@
+method,real_accuracy,null_mean,null_std,null_95th_percentile,n_null_at_or_above_real,p_value,significant_bonferroni
+pearson,0.6167,0.4963,0.0994,0.6702,121,0.1219,False
+spearman,0.8381,0.501,0.0983,0.6631,0,0.001,True
+kendall,0.481,0.5012,0.0999,0.6667,571,0.5714,False

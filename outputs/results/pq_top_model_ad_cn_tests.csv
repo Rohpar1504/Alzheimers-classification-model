@@ -1,0 +1,5 @@
+measure,test,n_AD,n_CN,AD_typical,CN_typical,summary,difference,difference_unit,effect_size,effect_size_type,p_value,bonferroni_cutoff,significant
+spearman,Winning p,12,13,2.0,2.2251,geometric mean,-0.1538,log2,0.8989,AD/CN ratio,0.8097,0.0125,False
+spearman,Winning q,12,13,0.4204,0.474,geometric mean,-0.1731,log2,0.8869,AD/CN ratio,0.4292,0.0125,False
+spearman,Outward preference,12,13,0.0198,0.0176,mean,0.0022,AUC,0.2027,Cohen's d,0.6235,0.0125,False
+spearman,No-backtracking preference,12,13,0.0076,0.0074,mean,0.0003,AUC,0.056,Cohen's d,0.8922,0.0125,False

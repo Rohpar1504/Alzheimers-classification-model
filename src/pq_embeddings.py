@@ -73,13 +73,13 @@ def fmt(x: float) -> str:
     return f"{x:g}"
 
 
-def embed_subject(mat: np.ndarray, p: float, q: float) -> np.ndarray:
+def embed_graph_nodes(G, p: float, q: float) -> np.ndarray:
     """
-    node2vec on one subject's graph with the given (p, q); return the mean-pooled
-    DIM-length feature vector. Identical to phase5b_node2vec_rf.embed_subject except
-    that p and q are passed through to the biased walk (phase5b fixes p=q=1).
+    node2vec on a graph with the given (p, q); return the per-node embeddings as an
+    (n_nodes x DIM) array (row i = node i; nodes never visited by a walk get zeros).
+    Shared by embed_subject (below) and pq_subject_fit.py, so both use exactly the
+    same node2vec settings.
     """
-    G = build_nx_graph(mat)
     n2v = Node2Vec(
         G,
         dimensions=DIM,
@@ -99,7 +99,16 @@ def embed_subject(mat: np.ndarray, p: float, q: float) -> np.ndarray:
         key = str(node)
         if key in model.wv:
             emb[node] = model.wv[key]
-    return emb.mean(axis=0)
+    return emb
+
+
+def embed_subject(mat: np.ndarray, p: float, q: float) -> np.ndarray:
+    """
+    node2vec on one subject's graph with the given (p, q); return the mean-pooled
+    DIM-length feature vector. Identical to phase5b_node2vec_rf.embed_subject except
+    that p and q are passed through to the biased walk (phase5b fixes p=q=1).
+    """
+    return embed_graph_nodes(build_nx_graph(mat), p, q).mean(axis=0)
 
 
 def ordered_subjects(method: str):

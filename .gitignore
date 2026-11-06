@@ -26,6 +26,7 @@ data/timeseries/**
 data/connectivity/**
 data/metadata/**
 data/pq_embeddings/**
+data/pq_subject_fit/**
 data/*.csv
 
 # Keep the empty-folder placeholders so the structure is preserved

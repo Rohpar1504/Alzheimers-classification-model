@@ -49,6 +49,9 @@ Usage:
     .venv/bin/python src/pq_nested_cv.py              # all 3 methods, NaN subjects excluded
     .venv/bin/python src/pq_nested_cv.py spearman     # one or more methods by name
     .venv/bin/python src/pq_nested_cv.py --keep-all   # include the NaN subjects
+    .venv/bin/python src/pq_nested_cv.py kendall --clf logreg
+        # Item 5: same nested CV with Logistic Regression (the bottom model's classifier);
+        # saved to outputs/results/pq_nested_cv_logreg.csv, the MLP file is not touched
 """
 
 import os
@@ -68,6 +71,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold
 from sklearn.metrics import accuracy_score, recall_score, f1_score
 
@@ -90,6 +94,15 @@ SEED = 0
 def make_mlp() -> MLPClassifier:
     """Identical to phase6_model_comparison.CLASSIFIER_CTORS['MLP']."""
     return MLPClassifier(hidden_layer_sizes=(32,), max_iter=1000, random_state=SEED)
+
+
+def make_logreg() -> LogisticRegression:
+    """Identical to phase6_model_comparison.CLASSIFIER_CTORS['LogisticReg']."""
+    return LogisticRegression(max_iter=1000, random_state=SEED)
+
+
+# --clf option: MLP is the default (Step 3); logreg is used for the bottom model (Item 5).
+CLASSIFIERS = {"mlp": (make_mlp, "MLP(32)"), "logreg": (make_logreg, "LogisticRegression")}
 
 
 def fmt(x: float) -> str:
@@ -123,7 +136,8 @@ def baseline_distance(pq) -> float:
     return abs(np.log2(p)) + abs(np.log2(q))
 
 
-def select_pq(feats: dict, y: np.ndarray, train_idx: np.ndarray, inner_seed: int):
+def select_pq(feats: dict, y: np.ndarray, train_idx: np.ndarray, inner_seed: int,
+              make_clf=make_mlp):
     """
     Inner CV on the outer TRAINING subjects only: score every (p, q) by mean inner
     accuracy and return (best_pq, its_inner_accuracy). The held-out outer fold is
@@ -137,7 +151,7 @@ def select_pq(feats: dict, y: np.ndarray, train_idx: np.ndarray, inner_seed: int
         X_tr = feats[pq][train_idx]
         accs = []
         for i_tr, i_va in inner:
-            clf = make_mlp().fit(X_tr[i_tr], y_tr[i_tr])
+            clf = make_clf().fit(X_tr[i_tr], y_tr[i_tr])
             accs.append(accuracy_score(y_tr[i_va], clf.predict(X_tr[i_va])))
         scores[pq] = float(np.mean(accs))
 
@@ -147,7 +161,7 @@ def select_pq(feats: dict, y: np.ndarray, train_idx: np.ndarray, inner_seed: int
     return best, best_acc
 
 
-def run_method(method: str, keep_idx: np.ndarray, y: np.ndarray) -> list:
+def run_method(method: str, keep_idx: np.ndarray, y: np.ndarray, make_clf=make_mlp) -> list:
     """Repeated nested CV for one connectivity method; returns one row per outer fold."""
     feats = {(p, q): np.load(EMB_DIR / method / f"p{fmt(p)}_q{fmt(q)}.npy")[keep_idx]
              for p, q in PQ_GRID}
@@ -156,11 +170,11 @@ def run_method(method: str, keep_idx: np.ndarray, y: np.ndarray) -> list:
     rows = []
     for k, (tr, te) in enumerate(outer.split(np.zeros(len(y)), y)):
         repeat, fold = divmod(k, N_OUTER)
-        (p, q), inner_acc = select_pq(feats, y, tr, inner_seed=SEED + k)
+        (p, q), inner_acc = select_pq(feats, y, tr, inner_seed=SEED + k, make_clf=make_clf)
 
-        sel = metrics(y[te], make_mlp().fit(feats[(p, q)][tr], y[tr]).predict(feats[(p, q)][te]))
+        sel = metrics(y[te], make_clf().fit(feats[(p, q)][tr], y[tr]).predict(feats[(p, q)][te]))
         Xb = feats[DEEPWALK_BASELINE]
-        base = metrics(y[te], make_mlp().fit(Xb[tr], y[tr]).predict(Xb[te]))
+        base = metrics(y[te], make_clf().fit(Xb[tr], y[tr]).predict(Xb[te]))
 
         rows.append({"method": method, "repeat": repeat, "fold": fold,
                      "p": p, "q": q, "inner_accuracy": round(inner_acc, 4),
@@ -177,6 +191,10 @@ def main() -> None:
     args = sys.argv[1:]
     keep_all = "--keep-all" in args
     methods = [m for m in args if m in METHODS] or list(METHODS)
+    clf_key = args[args.index("--clf") + 1] if "--clf" in args else "mlp"
+    if clf_key not in CLASSIFIERS:
+        sys.exit(f"unknown --clf {clf_key!r}; choose from {list(CLASSIFIERS)}")
+    make_clf, clf_label = CLASSIFIERS[clf_key]
 
     ids = json.loads((EMB_DIR / "ids.json").read_text())
     labels = np.load(EMB_DIR / "labels.npy")
@@ -188,17 +206,18 @@ def main() -> None:
     print(f"subjects={len(y)} (AD={int(y.sum())}, CN={int((y == 0).sum())})  "
           f"excluded={sorted(excluded) or 'none'}")
     print(f"outer={N_OUTER}-fold x {N_REPEATS} repeats, inner={N_INNER}-fold, "
-          f"grid={len(PQ_GRID)} (p,q), classifier=MLP(32)\n")
+          f"grid={len(PQ_GRID)} (p,q), classifier={clf_label}\n")
 
     t0 = time.time()
     rows = []
     for method in methods:
-        rows += run_method(method, keep_idx, y)
+        rows += run_method(method, keep_idx, y, make_clf)
         print()
     df = pd.DataFrame(rows)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_csv = RESULTS_DIR / ("pq_nested_cv_all.csv" if keep_all else "pq_nested_cv.csv")
+    suffix = ("_all" if keep_all else "") + ("" if clf_key == "mlp" else f"_{clf_key}")
+    out_csv = RESULTS_DIR / f"pq_nested_cv{suffix}.csv"
     df.round(4).to_csv(out_csv, index=False)
 
     print("---- Summary: test accuracy over all outer folds (mean +/- std) ----")

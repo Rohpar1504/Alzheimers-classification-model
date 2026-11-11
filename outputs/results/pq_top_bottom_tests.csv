@@ -1,0 +1,7 @@
+panel,model,description,test,n,top_typical,bottom_typical,pct_at_1_1,n_distinct_pairs,geo_mean_p,geo_mean_q,spread_p_x,spread_q_x,most_chosen,mean_difference,effect_size,effect_size_type,p_value,bonferroni_cutoff,significant
+A,Top,"MLP, Spearman","chosen (p, q) over folds - described, not tested",100,,,31.0,17.0,0.8586,1.3013,2.501,2.142,"(1,1) x31, (0.25,2) x12, (4,4) x11",,,,,,
+A,Bottom,"LogReg, Kendall","chosen (p, q) over folds - described, not tested",100,,,4.0,22.0,0.9659,1.4142,2.5116,2.447,"(2,1) x10, (2,2) x9, (4,2) x8",,,,,,
+B,Top vs Bottom,"Spearman vs Kendall, same subjects",Winning p,25,2.114,1.8404,,,,,,,,0.2,1.1487,Top/Bottom ratio,0.5477,0.0125,False
+B,Top vs Bottom,"Spearman vs Kendall, same subjects",Winning q,25,0.4475,0.4118,,,,,,,,0.12,1.0867,Top/Bottom ratio,0.5041,0.0125,False
+B,Top vs Bottom,"Spearman vs Kendall, same subjects",Outward preference,25,0.0187,0.0203,,,,,,,,-0.0017,-0.2582,paired Cohen's d,0.2083,0.0125,False
+B,Top vs Bottom,"Spearman vs Kendall, same subjects",No-backtracking preference,25,0.0075,0.007,,,,,,,,0.0005,0.2109,paired Cohen's d,0.3049,0.0125,False
